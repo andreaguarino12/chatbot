@@ -1,6 +1,7 @@
 const CHAT_WEBHOOK_URL = 'https://preventyx.osaspace.net/webhook/e04d26e2-bfe3-48f9-bf8d-e70d481b15a8/chat';
-const ATTACHMENT_WEBHOOK_URL = 'https://preventyx.osaspace.net/webhook/cb136faf-b4fa-4d6a-bf45-0c55407d7494d749';
+const ATTACHMENT_WEBHOOK_URL = 'https://preventyx.osaspace.net/webhook-test/cb136faf-b4fa-4d6a-bf45-0c55407d7494';
 const SESSION_STORAGE_KEY = 'preventyx-chat-session-id';
+const QUOTES_STORAGE_KEY = 'preventyx-generated-quotes';
 
 const chatMessages = document.getElementById('chatMessages');
 const messageInput = document.getElementById('messageInput');
@@ -81,7 +82,7 @@ function scrollToBottom() {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-function addMessage({ role, text, attachment = null }) {
+function addMessage({ role, text, attachment = null, quote = null }) {
     const messageEl = document.createElement('div');
     messageEl.className = `message ${role}`;
 
@@ -116,6 +117,29 @@ function addMessage({ role, text, attachment = null }) {
         }
 
         messageEl.appendChild(attachmentEl);
+    }
+
+    if (quote) {
+        const quoteEl = document.createElement('div');
+        quoteEl.className = 'message-quote';
+
+        const quoteTitle = document.createElement('strong');
+        quoteTitle.textContent = `Preventivo generato per ${quote.cliente.nome || 'Cliente'}`;
+        quoteEl.appendChild(quoteTitle);
+
+        const quoteInfo = document.createElement('div');
+        quoteInfo.className = 'message-quote-info';
+        quoteInfo.innerHTML = `
+            <div><strong>Codice:</strong> ${quote.preventivo.numero}</div>
+            <div><strong>Cliente:</strong> ${quote.cliente.nome || '-'}</div>
+            <div><strong>Indirizzo:</strong> ${quote.cliente.indirizzo || '-'}</div>
+            <div><strong>Descrizione:</strong> ${quote.descrizione_attivita || '-'}</div>
+            <div><strong>Prodotti:</strong> ${quote.prodotti.length}</div>
+            <div><strong>Note:</strong> ${quote.note || '-'}</div>
+        `;
+        quoteEl.appendChild(quoteInfo);
+
+        messageEl.appendChild(quoteEl);
     }
 
     chatMessages.appendChild(messageEl);
@@ -226,6 +250,15 @@ function stopTracks() {
     }
 }
 
+function safeJsonParse(value, fallback = null) {
+    if (typeof value !== 'string') return fallback;
+    try {
+        return JSON.parse(value);
+    } catch {
+        return fallback;
+    }
+}
+
 function extractReply(data) {
     if (!data) return 'Operazione completata.';
     if (typeof data === 'string') return data;
@@ -252,6 +285,214 @@ function extractReply(data) {
     return 'Operazione completata.';
 }
 
+function isPreventivoPayload(item) {
+    return (
+        item &&
+        typeof item === 'object' &&
+        (
+            'descrizione_attivita' in item ||
+            'prodotti' in item ||
+            'cliente_nome' in item ||
+            'indirizzo' in item ||
+            'note' in item
+        )
+    );
+}
+
+function extractPreventivoPayload(data) {
+    if (!data) return null;
+
+    if (Array.isArray(data)) {
+        const found = data.find(isPreventivoPayload);
+        if (found) return found;
+
+        for (const item of data) {
+            const nested = extractPreventivoPayload(item);
+            if (nested) return nested;
+        }
+
+        return null;
+    }
+
+    if (typeof data === 'string') {
+        const parsed = safeJsonParse(data);
+        if (parsed) return extractPreventivoPayload(parsed);
+        return null;
+    }
+
+    if (typeof data === 'object') {
+        if (isPreventivoPayload(data)) return data;
+
+        for (const value of Object.values(data)) {
+            const nested = extractPreventivoPayload(value);
+            if (nested) return nested;
+        }
+    }
+
+    return null;
+}
+
+function parseProdottiField(prodotti) {
+    if (Array.isArray(prodotti)) {
+        return prodotti.map(normalizeProduct).filter(Boolean);
+    }
+
+    if (typeof prodotti === 'string') {
+        const trimmed = prodotti.trim();
+
+        if (!trimmed || trimmed === '[]') {
+            return [];
+        }
+
+        const parsed = safeJsonParse(trimmed, null);
+
+        if (Array.isArray(parsed)) {
+            return parsed.map(normalizeProduct).filter(Boolean);
+        }
+
+        return trimmed
+            .split('\n')
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .map((descrizione) => ({
+                descrizione,
+                quantita: null,
+                costo_unitario: null,
+                iva_percentuale: null,
+                totale_riga: null
+            }));
+    }
+
+    return [];
+}
+
+function normalizeProduct(item) {
+    if (!item) return null;
+
+    if (typeof item === 'string') {
+        const descrizione = item.trim();
+        if (!descrizione) return null;
+
+        return {
+            descrizione,
+            quantita: null,
+            costo_unitario: null,
+            iva_percentuale: null,
+            totale_riga: null
+        };
+    }
+
+    if (typeof item === 'object') {
+        return {
+            descrizione: String(item.descrizione || item.nome || item.prodotto || '').trim(),
+            quantita: toNullableNumber(item.quantita),
+            costo_unitario: toNullableNumber(item.costo_unitario),
+            iva_percentuale: toNullableNumber(item.iva_percentuale),
+            totale_riga: toNullableNumber(item.totale_riga)
+        };
+    }
+
+    return null;
+}
+
+function toNullableNumber(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const number = Number(String(value).replace(',', '.'));
+    return Number.isFinite(number) ? number : null;
+}
+
+function buildQuoteNumber() {
+    const timestamp = new Date();
+    const y = timestamp.getFullYear();
+    const m = String(timestamp.getMonth() + 1).padStart(2, '0');
+    const d = String(timestamp.getDate()).padStart(2, '0');
+    const h = String(timestamp.getHours()).padStart(2, '0');
+    const min = String(timestamp.getMinutes()).padStart(2, '0');
+    return `PREV-${y}${m}${d}-${h}${min}`;
+}
+
+function formatDateISO(date) {
+    return new Date(date).toISOString().slice(0, 10);
+}
+
+function addDays(date, days) {
+    const next = new Date(date);
+    next.setDate(next.getDate() + days);
+    return next;
+}
+
+function normalizeQuoteFromWebhook(payload) {
+    const now = new Date();
+    const prodotti = parseProdottiField(payload.prodotti);
+
+    return {
+        azienda: {
+            ragione_sociale: 'Preventyx',
+            indirizzo: '',
+            partita_iva: '',
+            email: ''
+        },
+        preventivo: {
+            numero: buildQuoteNumber(),
+            nome: `Preventivo per ${payload.cliente_nome?.trim() || 'Cliente'}`,
+            data: formatDateISO(now),
+            scadenza: formatDateISO(addDays(now, 30)),
+            stato: 'bozza'
+        },
+        cliente: {
+            nome: String(payload.cliente_nome || '').trim(),
+            email: String(payload.cliente_email || '').trim(),
+            telefono: String(payload.cliente_telefono || '').trim(),
+            indirizzo: String(payload.indirizzo || '').trim(),
+            partita_iva: String(payload.partita_iva || '').trim()
+        },
+        descrizione_attivita: String(payload.descrizione_attivita || '').trim(),
+        prodotti,
+        totali: {
+            totale_complessivo: calculateQuoteTotal(prodotti)
+        },
+        note: String(payload.note || '').trim(),
+        raw: payload,
+        createdAt: new Date().toISOString()
+    };
+}
+
+function calculateQuoteTotal(prodotti) {
+    return prodotti.reduce((sum, prodotto) => {
+        const totaleRiga = toNullableNumber(prodotto?.totale_riga);
+        return sum + (totaleRiga || 0);
+    }, 0);
+}
+
+function saveGeneratedQuote(quote) {
+    const existing = getGeneratedQuotes();
+    existing.unshift(quote);
+    localStorage.setItem(QUOTES_STORAGE_KEY, JSON.stringify(existing.slice(0, 50)));
+}
+
+function getGeneratedQuotes() {
+    const parsed = safeJsonParse(localStorage.getItem(QUOTES_STORAGE_KEY), []);
+    return Array.isArray(parsed) ? parsed : [];
+}
+
+function generateQuoteFromWebhookResponse(data) {
+    const payload = extractPreventivoPayload(data);
+    if (!payload) return null;
+
+    const quote = normalizeQuoteFromWebhook(payload);
+    saveGeneratedQuote(quote);
+
+    window.lastGeneratedQuote = quote;
+    window.generatedQuotes = getGeneratedQuotes();
+
+    return quote;
+}
+
+function getLastGeneratedQuote() {
+    const quotes = getGeneratedQuotes();
+    return quotes[0] || null;
+}
+
 async function sendTextMessage(text) {
     const response = await fetch(CHAT_WEBHOOK_URL, {
         method: 'POST',
@@ -265,10 +506,6 @@ async function sendTextMessage(text) {
         })
     });
 
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-
     const raw = await response.text();
     let data = raw;
 
@@ -278,13 +515,35 @@ async function sendTextMessage(text) {
         data = raw;
     }
 
-    return extractReply(data);
+    if (!response.ok) {
+        console.error('Errore webhook chat:', {
+            status: response.status,
+            statusText: response.statusText,
+            body: data
+        });
+
+        throw new Error(
+            `Webhook chat errore ${response.status}: ${
+                typeof data === 'string' ? data : JSON.stringify(data)
+            }`
+        );
+    }
+
+    return {
+        reply: extractReply(data),
+        raw: data
+    };
 }
 
 async function sendAttachment(note) {
     const formData = new FormData();
-    formData.append('file', currentAttachment.file);
-    formData.append('attachment', currentAttachment.file);
+
+    if (currentAttachment.kind === 'audio') {
+        formData.append('audio', currentAttachment.file);
+    } else {
+        formData.append('file', currentAttachment.file);
+    }
+
     formData.append('filename', currentAttachment.file.name);
     formData.append('mimeType', currentAttachment.file.type || 'application/octet-stream');
     formData.append('sessionId', sessionId);
@@ -301,18 +560,10 @@ async function sendAttachment(note) {
         formData.append('message', '');
     }
 
-    if (currentAttachment.kind === 'audio') {
-        formData.append('audio', currentAttachment.file);
-    }
-
     const response = await fetch(ATTACHMENT_WEBHOOK_URL, {
         method: 'POST',
         body: formData
     });
-
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
 
     const raw = await response.text();
     let data = raw;
@@ -323,7 +574,25 @@ async function sendAttachment(note) {
         data = raw;
     }
 
-    return extractReply(data);
+    if (!response.ok) {
+        console.error('Errore webhook allegati:', {
+            url: ATTACHMENT_WEBHOOK_URL,
+            status: response.status,
+            statusText: response.statusText,
+            body: data
+        });
+
+        throw new Error(
+            `Webhook allegati errore ${response.status}: ${
+                typeof data === 'string' ? data : JSON.stringify(data)
+            }`
+        );
+    }
+
+    return {
+        reply: extractReply(data),
+        raw: data
+    };
 }
 
 async function handleSend() {
@@ -357,26 +626,38 @@ async function handleSend() {
     autoResizeTextarea();
 
     try {
-        let reply = '';
+        let result = null;
 
         if (currentAttachment) {
-            reply = await sendAttachment(text);
+            result = await sendAttachment(text);
         } else {
-            reply = await sendTextMessage(text);
+            result = await sendTextMessage(text);
         }
+
+        const generatedQuote = generateQuoteFromWebhookResponse(result.raw);
 
         addMessage({
             role: 'assistant',
-            text: reply || 'Ricevuto.'
+            text: result.reply || (generatedQuote ? 'Preventivo generato correttamente.' : 'Ricevuto.'),
+            quote: generatedQuote
         });
 
-        setComposerStatus('Messaggio inviato correttamente.', 'success');
+        if (generatedQuote) {
+            console.log('Preventivo generato:', generatedQuote);
+            setComposerStatus(
+                `Preventivo ${generatedQuote.preventivo.numero} generato correttamente.`,
+                'success'
+            );
+        } else {
+            setComposerStatus('Messaggio inviato correttamente.', 'success');
+        }
+
         clearAttachment();
     } catch (error) {
         console.error('Send error:', error);
         addMessage({
             role: 'assistant',
-            text: 'Invio non riuscito. Verifica il webhook n8n, il CORS o la configurazione del workflow.'
+            text: `Invio non riuscito: ${error.message || 'errore sconosciuto'}`
         });
         setComposerStatus('Errore di invio verso n8n.', 'error');
     } finally {
@@ -497,6 +778,10 @@ window.addEventListener('beforeunload', () => {
         URL.revokeObjectURL(currentAttachment.previewUrl);
     }
 });
+
+window.getGeneratedQuotes = getGeneratedQuotes;
+window.getLastGeneratedQuote = getLastGeneratedQuote;
+window.generateQuoteFromWebhookResponse = generateQuoteFromWebhookResponse;
 
 autoResizeTextarea();
 updateSendButtonState();
