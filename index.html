@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Preventyx AI Chat</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <main class="chat-page">
+        <section class="chat-shell">
+            <header class="chat-header">
+                <div class="chat-brand">
+                    <div class="brand-mark">AI</div>
+                    <div>
+                        <p class="eyebrow">Preventyx</p>
+                        <h1>Assistente Operativo</h1>
+                        <p class="chat-subtitle">Chat professionale per messaggi, documenti e note vocali.</p>
+                    </div>
+                </div>
+                <div class="status-pill">
+                    <span class="status-dot"></span>
+                    Connesso
+                </div>
+            </header>
+
+            <div id="chatMessages" class="chat-messages">
+                <div class="message assistant">
+                    <div class="message-role">Assistente</div>
+                    <div class="message-bubble">Ciao, sono Preventyx AI. Posso aiutarti a gestire richieste, analizzare documenti e raccogliere note vocali in un'unica conversazione. Scrivimi un messaggio oppure allega un file per iniziare.</div>
+                </div>
+            </div>
+
+            <div class="composer-wrap">
+                <div id="attachmentTray" class="attachment-tray hidden" aria-live="polite">
+                    <div class="attachment-tray-info">
+                        <span id="attachmentBadge" class="attachment-badge">FILE</span>
+                        <div>
+                            <div id="attachmentLabel" class="attachment-label">Allegato pronto</div>
+                            <div id="attachmentName" class="attachment-name">Nessun contenuto selezionato</div>
+                        </div>
+                    </div>
+                    <button id="clearAttachmentBtn" class="clear-attachment-btn" type="button">Rimuovi</button>
+                </div>
+
+                <div id="audioPreviewBox" class="audio-preview-box hidden">
+                    <audio id="recordedAudio" controls></audio>
+                    <p id="audioMeta" class="audio-meta"></p>
+                </div>
+
+                <div class="composer">
+                    <button id="attachBtn" class="icon-btn attach-btn" type="button" aria-label="Allega documento">
+                        <span class="btn-icon" aria-hidden="true">+</span>
+                        <span class="btn-label">Allega</span>
+                    </button>
+                    <textarea id="messageInput" rows="1" placeholder="Scrivi un messaggio per l'assistente..."></textarea>
+                    <button id="recordBtn" class="icon-btn" type="button" aria-label="Registra audio">
+                        <span class="btn-icon" aria-hidden="true">Mic</span>
+                    </button>
+                    <button id="stopBtn" class="icon-btn stop hidden" type="button" aria-label="Ferma registrazione">
+                        <span class="btn-icon" aria-hidden="true">Stop</span>
+                    </button>
+                    <button id="sendBtn" class="send-btn" type="button" disabled>
+                        <span>Invia</span>
+                    </button>
+                </div>
+
+                <div class="composer-footer">
+                    <span id="recorderStatus" class="recorder-status idle">Microfono pronto</span>
+                    <span id="composerStatus" class="composer-status">Webhook chat e webhook allegati attivi.</span>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <input id="attachmentInput" type="file" accept=".pdf,.doc,.docx,.txt,image/*,audio/*,.mp3,.wav,.m4a,.webm" hidden>
+
+    <script src="script.js" defer></script>
+</body>
+</html>
